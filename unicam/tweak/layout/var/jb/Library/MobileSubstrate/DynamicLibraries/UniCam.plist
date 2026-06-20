@@ -1,5 +1,5 @@
 {
     Filter = {
-        Bundles = ( "REPLACE.WITH.UNICO.APP.BUNDLEID" );
+        Bundles = ( "io.unico.security.hackerone.sdk" );
     };
 }
