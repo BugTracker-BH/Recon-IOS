@@ -1,0 +1,9 @@
+Package: com.local.unicobypass
+Name: UnicoBypass (JB/anti-debug bypass)
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: In-process jailbreak + anti-debug bypass for AUTHORIZED Unico liveness bug-bounty testing on in-scope apps.
+Author: ELITECLANKS
+Maintainer: ELITECLANKS
+Section: Tweaks
+Depends: ellekit
