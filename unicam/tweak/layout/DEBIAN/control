@@ -1,0 +1,9 @@
+Package: com.local.unicam
+Name: UniCam (liveness test camera)
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Runtime camera-frame injector for AUTHORIZED Unico liveness bug-bounty testing on in-scope test apps. Replaces the live camera feed with frames from /var/mobile/Documents/vcam.mp4.
+Author: ELITECLANKS
+Maintainer: ELITECLANKS
+Section: Tweaks
+Depends: ellekit
