@@ -17,6 +17,7 @@
 #import <sys/proc.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <execinfo.h>
 
 extern int ptrace(int, pid_t, caddr_t, int);
 
@@ -101,6 +102,64 @@ static FILE *my_fopen(const char *path, const char *m) {
     LAZY(real_fopen, "fopen"); return real_fopen(path, m);
 }
 DYLD_INTERPOSE(my_fopen, fopen)
+
+// ---- NUCLEAR: catch + swallow the silent-exit detection path ----
+// Logs a symbolicated backtrace (so we SEE which function bailed) and, when
+// UNICO_SWALLOW_EXIT is set, refuses to let the process terminate.
+#ifndef UNICO_SWALLOW_EXIT
+#define UNICO_SWALLOW_EXIT 1
+#endif
+
+static void dumpBacktrace(const char *who) {
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    NSMutableString *out = [NSMutableString stringWithFormat:
+        @"\n[UnicoBypass] *** %s called *** (%d frames) %@\n",
+        who, n, [NSDate date]];
+    for (int i = 0; i < n; i++) {
+        Dl_info info; memset(&info, 0, sizeof(info));
+        const char *img = "?";
+        if (dladdr(frames[i], &info) && info.dli_fname) {
+            const char *s = strrchr(info.dli_fname, '/');
+            img = s ? s + 1 : info.dli_fname;
+        }
+        if (info.dli_sname)
+            [out appendFormat:@"  %2d  %-28s %s + %ld\n", i, img, info.dli_sname,
+                  (long)((char *)frames[i] - (char *)info.dli_saddr)];
+        else
+            [out appendFormat:@"  %2d  %-28s %p\n", i, img, frames[i]];
+    }
+    NSLog(@"%@", out);
+    // Also append to a file you can just `cat` over SSH.
+    NSString *path = @"/var/mobile/Documents/unicobypass.log";
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!fh) { [out writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil]; }
+    else { @try { [fh seekToEndOfFile]; [fh writeData:[out dataUsingEncoding:NSUTF8StringEncoding]]; [fh closeFile]; } @catch (__unused id e) {} }
+}
+
+static void hangForever(void) { while (1) { [NSThread sleepForTimeInterval:3600]; } }
+
+static void my_exit(int code)  { dumpBacktrace("exit");  if (UNICO_SWALLOW_EXIT) hangForever();
+                                 void (*r)(int)  = dlsym(RTLD_NEXT, "exit");  if (r) r(code);  while(1){} }
+DYLD_INTERPOSE(my_exit, exit)
+
+static void my__exit(int code) { dumpBacktrace("_exit"); if (UNICO_SWALLOW_EXIT) hangForever();
+                                 void (*r)(int)  = dlsym(RTLD_NEXT, "_exit"); if (r) r(code);  while(1){} }
+DYLD_INTERPOSE(my__exit, _exit)
+
+static void my_abort(void)     { dumpBacktrace("abort"); if (UNICO_SWALLOW_EXIT) hangForever();
+                                 void (*r)(void) = dlsym(RTLD_NEXT, "abort"); if (r) r();      while(1){} }
+DYLD_INTERPOSE(my_abort, abort)
+
+static int  (*real_kill)(pid_t, int);
+static int my_kill(pid_t pid, int sig) {
+    if (pid == getpid() || pid == 0) {
+        dumpBacktrace("kill(self)");
+        if (UNICO_SWALLOW_EXIT) return 0;       // refuse self-termination
+    }
+    LAZY(real_kill, "kill"); return real_kill(pid, sig);
+}
+DYLD_INTERPOSE(my_kill, kill)
 
 // ---- Objective-C layer (swizzled in constructor) ----
 static BOOL (*orig_fileExists)(id, SEL, id);
